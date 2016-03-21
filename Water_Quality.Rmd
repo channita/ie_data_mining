@@ -255,10 +255,10 @@ plot(E..coli..MF. ~ Temp...C.+DO..mg.L.+DO....sat..+EC..uS.cm.+pH+Turb...NTU.+Su
 
 # Plotting E Coli MF vs all the predictors to guess the shape of the predictors
 # E Coli seems to have a negative linear shape of correlations vs Temperature
-# E Coli seems to have a negative quadratic(parabolic) shape of correlations vs Dissolved Oxygen mg L
-# E Coli seems to have a negative quadratic(parabolic) shape of correlations vs Dissolved Oxygen (Sat)
+# E Coli seems to have a normal distribution vs Dissolved Oxygen mg L
+# E Coli seems to have a normal distribution vs Dissolved Oxygen (Sat)
 # E Coli seems to have a negative Exponent graph vs Electrical Conductivity
-# E Coli seems to have a negative quadratic shape of correlations vs pH
+# E Coli seems to have a normal distribution of correlations vs pH
 # E Coli seems to have an unknown realtionship vs Turbulence
 # E Coli seems to have an unknown realtionship vs Suspended Solids
 # E Coli seems to have an unknown realtionship vs NO3
@@ -301,5 +301,18 @@ fits5 = lm(Total.N ~  scale(training_data$NO3..mg.L.as.N.)+scale(training_data$N
 summary(fits5)
   
 fits = by(training_data,training_data[,'New.Site.Code...post.Jun.2007.'],function(x) lm(E..coli..MF. ~ Old.Site.Code...pre.Jun.2007.+ New.Site.Code...post.Jun.2007.+ scale(EC..uS.cm.^2)+scale(Turb...NTU.^2)+scale(Susp..Solids..mg.L.)+scale(PO4.filt...mg.L.as.P.)+scale(Total.P..mg.L.as.P.),data = x))
+```
+
+```{r - Modeling part 2 - Classification}
+#Creating pH as a factor
+training_data$pHlabel = cut(training_data$pH,2*(0:7),labels = c('Highly Acidic','Acidic','Slightly Acidic','Neutral','Slightly Basic','Basic','Highly Basic'))
+
+
+
+
+```
+
+```{r - Modeling part 3 - Clustering}
+
 ```
 
