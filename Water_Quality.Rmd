@@ -297,7 +297,6 @@ summary(fits4)
 
 fits5 = lm(Total.N ~  scale(training_data$NO3..mg.L.as.N.)+scale(training_data$NO2..mg.L.as.N.)+scale(training_data$NH3..mg.L.)+scale(training_data$TKN..mg.L.as.N.), data = training_data)
 
-#So it seems most of the nitrogen comes from ammonia or is explained by ammonia.
 summary(fits5)
   
 fits = by(training_data,training_data[,'New.Site.Code...post.Jun.2007.'],function(x) lm(E..coli..MF. ~ Old.Site.Code...pre.Jun.2007.+ New.Site.Code...post.Jun.2007.+ scale(EC..uS.cm.^2)+scale(Turb...NTU.^2)+scale(Susp..Solids..mg.L.)+scale(PO4.filt...mg.L.as.P.)+scale(Total.P..mg.L.as.P.),data = x))
