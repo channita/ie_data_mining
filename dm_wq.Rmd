@@ -28,6 +28,10 @@ library(UsingR)
 library(zoo)
 library(tree)
 library(randomForest)
+library(pvclust)
+library(cluster)
+library(fpc)
+
 setwd("/home/ab/Documents/MBD/data_mining/assignment3/data")
 wq = read.csv("wq.csv")
 
@@ -67,12 +71,40 @@ temp$ma3t = rollapply(temp$Maximum.temperature..Degree.C., 3, mean,fill = NA)
 temp$ma5t = rollapply(temp$Maximum.temperature..Degree.C., 5, mean,fill = NA)
 temp$ma10t = rollapply(temp$Maximum.temperature..Degree.C., 10, mean,fill = NA)
 
+### Site Land Use and Quality Category
+qual = read.csv("quality.csv",strip.white=TRUE)
+names(qual) = c("New.Site.Code...post.Jun.2007.","landuse","quality")
 
 #This line merges rainfall into the water quality data. 
 wq = merge(wq,rain,by = "Date" )
 wq = merge(wq,sun,by = "Date" )
 wq = merge(wq,temp,by = "Date" )
+wq = merge(wq,qual,by = "New.Site.Code...post.Jun.2007." )
 ```
+
+Removing NAs
+```{r}
+nrow(wq)
+wq = filter(wq,!is.na(wq$Temp...C.))
+wq = filter(wq,!is.na(wq$pH))
+wq = filter(wq,!is.na(wq$DO..mg.L.))
+wq = filter(wq,!is.na(wq$DO....sat..))
+wq = filter(wq,!is.na(wq$EC..uS.cm.))
+wq = filter(wq,!is.na(wq$Turb...NTU.))
+wq = filter(wq,!is.na(wq$Susp..Solids..mg.L.))
+wq = filter(wq,!is.na(wq$NO3..mg.L.as.N.))
+wq = filter(wq,!is.na(wq$NO2..mg.L.as.N.))
+wq = filter(wq,!is.na(wq$NH3..mg.L.))
+wq = filter(wq,!is.na(wq$TKN..mg.L.as.N.))
+wq = filter(wq,!is.na(wq$Total.N))
+wq = filter(wq,!is.na(wq$PO4.filt...mg.L.as.P.))
+wq = filter(wq,!is.na(wq$Total.P..mg.L.as.P.))
+wq = filter(wq,!is.na(wq$E..coli..MF.))
+nrow(wq)
+
+
+```
+
 
 
 #####################################################################
@@ -160,24 +192,23 @@ ggplot(ya_ec_no, aes(x=EC..uS.cm.)) + geom_density() + facet_wrap(~New.Site.Code
 ```
 
 
-#Histograms of pH
-PH looks to be very normal
+##pH
+PH looks to be very normal and its maximum is within the PH range.
 ```{r}
+max(ya$pH)
 qplot(y=ya$pH, x= 1, geom = "boxplot")
 ggplot(ya, aes(x=pH)) + geom_density()
 ggplot(ya, aes(x=pH, fill = New.Site.Code...post.Jun.2007.)) + geom_density()
 ggplot(ya, aes(x=pH)) + geom_density() + facet_wrap(~New.Site.Code...post.Jun.2007.)
 ```
 
-#Histograms of Turbulance (the amount of particles in the water)
-PH looks to be very right skewed. With many outliers.
+##Turbulance (the amount of particles in the water)
 ```{r}
 qplot(y=ya$Turb...NTU., x= 1, geom = "boxplot")
 ggplot(ya, aes(x=Turb...NTU.)) + geom_density()
 ggplot(ya, aes(x=Turb...NTU., fill = New.Site.Code...post.Jun.2007.)) + geom_density()
 ggplot(ya, aes(x=Turb...NTU.)) + geom_density() + facet_wrap(~New.Site.Code...post.Jun.2007.)
 ```
-
 After removing outliers, we see that Turbulance levels are different across the sites.
 ```{r}
 tu_upper_limit = quantile(ya$Turb...NTU., na.rm=T)[4] + 1.5*IQR(ya$Turb...NTU.,na.rm=T)
@@ -188,9 +219,8 @@ ggplot(ya_tu_no, aes(x=Turb...NTU.)) + geom_density() + facet_wrap(~New.Site.Cod
 ```
 
 
-
-#Histograms of Suspended Solids (the amount of particles in the water)
-PH looks to be very right skewed. With many outliers.
+##Suspended Solids (the amount of particles in the water)
+Suspended Solids looks to be very right skewed. With many outliers.
 ```{r}
 qplot(y=ya$Susp..Solids..mg.L., x= 1, geom = "boxplot")
 ggplot(ya, aes(x=Susp..Solids..mg.L.)) + geom_density()
@@ -199,8 +229,7 @@ ggplot(ya, aes(x=Susp..Solids..mg.L.)) + geom_density() + facet_wrap(~New.Site.C
 ```
 
 
-```{r}
-After removing outliers, we see that Turbulance levels are different across the sites.
+###After removing outliers, we see that Turbulance levels are different across the sites.
 ```{r}
 ss_upper_limit = quantile(ya$Susp..Solids..mg.L., na.rm=T)[4] + 1.5*IQR(ya$Susp..Solids..mg.L.,na.rm=T)
 ya_ss_no = subset(ya, Susp..Solids..mg.L. < ss_upper_limit) 
@@ -210,57 +239,77 @@ ggplot(ya_ss_no, aes(x=Turb...NTU.)) + geom_density() + facet_wrap(~New.Site.Cod
 ```
 
 
-
-
-
-
-
-
-########################################################
-Let's not 
+##Correlations
+### Rainfall, Rainfall Lags and Turbulence
+With this graph, we see that, although weak, the linear relationship between Turbulence and average Rainfall over the past 2,3,5 and 10 days declines. Higher average rainfall in recent days has a stronger linear relationship with Turbulence than rainfall averaged over a longer time.
 ```{r}
+rain_turb_day = cor(wq$Rainfall.amount..millimetres.,wq$Turb...NTU., use="complete.obs", method = "pearson")
+rain_turb_lag2 = cor(wq$ma2r,wq$Turb...NTU., use="complete.obs", method = "pearson")
+rain_turb_lag3 = cor(wq$ma3r, wq$Turb...NTU., use="complete.obs", method = "pearson")
+rain_turb_lag5 = cor(wq$ma5r, wq$Turb...NTU., use="complete.obs", method = "pearson")
+rain_turb_lag10 = cor(wq$ma10r, wq$Turb...NTU., use="complete.obs", method = "pearson")
 
-
-cor(wq$ma2, wq$Turb...NTU., use="complete.obs", method = "pearson")
-cor(wq$ma3, wq$Turb...NTU., use="complete.obs", method = "pearson")
-cor(wq$ma5, wq$Turb...NTU., use="complete.obs", method = "pearson")
-cor(wq$ma10, wq$Turb...NTU., use="complete.obs", method = "pearson")
-
-cor(wq$ma2, wq$Susp..Solids..mg.L., use="complete.obs", method = "pearson")
-cor(wq$ma3, wq$Susp..Solids..mg.L., use="complete.obs", method = "pearson")
-cor(wq$ma5, wq$Susp..Solids..mg.L., use="complete.obs", method = "pearson")
-cor(wq$ma10, wq$Susp..Solids..mg.L., use="complete.obs", method = "pearson")
-
-cor(ya$Rainfall.amount..millimetres., ya$Turb...NTU., use="complete.obs", method = "spearman")
-cor(ya$ma2, ya$Turb...NTU., use="complete.obs", method = "spearman")
-cor(ya$ma3, ya$Turb...NTU., use="complete.obs", method = "spearman")
-cor(ya$ma5, ya$Turb...NTU., use="complete.obs", method = "spearman")
-cor(ya$ma10, ya$Turb...NTU., use="complete.obs", method = "spearman")
-
-cor(ya$ma3, ya$Susp..Solids..mg.L., use="complete.obs", method = "pearson")
-cor(ya$ma5, ya$Susp..Solids..mg.L., use="complete.obs", method = "pearson")
-cor(ya$ma10, ya$Susp..Solids..mg.L., use="complete.obs", method = "pearson")
-
-cor(wq$ma3, wq$Total.N, use="complete.obs", method = "spearman")
-cor(wq$ma5, wq$Total.N, use="complete.obs", method = "spearman")
-cor(wq$ma10, wq$Total.N, use="complete.obs", method = "spearman")
-
-cor(wq$ma3, wq$E..coli..MF., use="complete.obs", method = "spearman")
-cor(wq$ma5, wq$E..coli..MF., use="complete.obs", method = "spearman")
-cor(wq$ma10, wq$E..coli..MF., use="complete.obs", method = "spearman")
+cor_labs = c("Same Day","2 Day Lag","3 Day Lag","5 Day Lag","10 Day Lag")
+plot(c(rain_turb_day,rain_turb_lag2,rain_turb_lag3,rain_turb_lag5,rain_turb_lag10),type ="l", main = "Correlation between Turbulence and Rainfall", xaxt='n')
+axis(side = 1,at = c(1,2,3,4,5),labels = cor_labs)
 
 ```
 
-
-###Correlations
+### Rainfall, Rainfall Lags and Suspended Solids
+With this graph, we see that, although weak, the linear relationship between Suspended Solids and average Rainfall over the past 2,3,5 and 10 days declines. Higher average rainfall in recent days has a stronger linear relationship with Suspended Solids than rainfall averaged over a longer time.
 ```{r}
-#ggpairs(ya[,c(11,12,13,14,15,20,22,24,25:31,33)])
+rain_ss_day = cor(wq$Rainfall.amount..millimetres.,wq$Susp..Solids..mg.L., use="complete.obs", method = "pearson")
+rain_ss_lag2 = cor(wq$ma2r,wq$Susp..Solids..mg.L., use="complete.obs", method = "pearson")
+rain_ss_lag3 = cor(wq$ma3r, wq$Susp..Solids..mg.L., use="complete.obs", method = "pearson")
+rain_ss_lag5 = cor(wq$ma5r, wq$Susp..Solids..mg.L., use="complete.obs", method = "pearson")
+rain_ss_lag10 = cor(wq$ma10r, wq$Susp..Solids..mg.L., use="complete.obs", method = "pearson")
+cor_labs = c("Same Day","2 Day Lag","3 Day Lag","5 Day Lag","10 Day Lag")
+plot(c(rain_ss_day,rain_ss_lag2,rain_ss_lag3,rain_ss_lag5,rain_ss_lag10),type ="l", main = "Correlation between Suspended Solids and Rainfall", xaxt='n')
+axis(side = 1,at = c(1,2,3,4,5),labels = cor_labs)
+```
 
-names(ya[,c(11,12,13,14,15,20,22,24,25:31,33)])
-names(ya)
 
-hclust(ya[,c(11,12,13,14,15,20,22,24,25:31,33)],na.action = 
+### Rainfall, Rainfall Lags and Total Nitrogen
+Here we see no linear relationship between rainfall and nitrogen loads in the river.
+```{r}
+rain_n_day = cor(wq$Rainfall.amount..millimetres.,wq$Total.N, use="complete.obs", method = "pearson")
+rain_n_lag2 = cor(wq$ma2r,wq$Total.N, use="complete.obs", method = "pearson")
+rain_n_lag3 = cor(wq$ma3r, wq$Total.N, use="complete.obs", method = "pearson")
+rain_n_lag5 = cor(wq$ma5r, wq$Total.N, use="complete.obs", method = "pearson")
+rain_n_lag10 = cor(wq$ma10r, wq$Total.N, use="complete.obs", method = "pearson")
+cor_labs = c("Same Day","2 Day Lag","3 Day Lag","5 Day Lag","10 Day Lag")
+plot(c(rain_n_day,rain_n_lag2,rain_n_lag3,rain_n_lag5,rain_n_lag10),type ="l", main = "Correlation between Nitrogen and Rainfall", xaxt='n')
+axis(side = 1,at = c(1,2,3,4,5),labels = cor_labs)
+```
 
+
+#CLustering
+###Heirarchical Clustering
+Not much insight came from this.
+```{r}
+
+ya_site_data = ya[,c(3,11,12,13,14,15,20,22)] %>% group_by(New.Site.Code...post.Jun.2007.)%>% summarise_each(funs(mean))
+
+ya_clus = dist(ya_site_data[,-1])
+
+ya_clus = hclust(ya_clus)
+plot(ya_clus, labels = ya_site_data$New.Site.Code...post.Jun.2007.)
+rect.hclust(ya_clus, k=4, border="red")
+ya_groups <- cutree(ya_clus, k=4)
+ya_site_data$hclus_group = ya_groups
+```
+
+
+###K Means Clustering
+
+```{r}
+ya_site_data = ya[,c(3,11,12,13,14,15,20,22)] %>% group_by(New.Site.Code...post.Jun.2007.)%>% summarise_each(funs(mean))
+ya_site_labels = ya_site_data[,1]
+ya_site_data = scale(ya_site_data[,-1])
+ya_kmean = kmeans(ya_site_data[,],3)
+plotcluster(ya_site_data, ya_kmean$cluster)
+clusplot(ya_site_data, ya_kmean$cluster, color=TRUE, shade=TRUE, labels=2, lines=0)
+unique(ya$New.Site.Code...post.Jun.2007.)
 ```
 
 
