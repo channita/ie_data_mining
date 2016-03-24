@@ -1,0 +1,630 @@
+---
+title: "EDA_GroupE1"
+output: html_document
+---
+
+
+1. Data creation 
+
+```{r}
+
+### Loading packages and initial dataset
+library(xlsx)
+library(GGally)
+library(timeSeries)
+library(tseries)
+library(ggplot2)
+library(stringr)
+library(dplyr)
+library(UsingR)
+library(zoo)
+library(tree)
+library(randomForest)
+library(pvclust)
+library(cluster)
+library(fpc)
+library(nlme)
+library(DAAG)
+library(MASS)
+library(gclus)
+library(car)
+
+wq = read.csv("wq.csv")
+
+### Format and fix the dates
+wq$Date = as.Date(wq$Date, format="%d/%m/%Y")
+wq$month =  as.numeric(format(wq$Date, "%m"))
+wq$year = as.numeric(format(wq$Date, "%Y"))
+
+### Adding Rainfall Data
+rain = read.csv("rain.csv")
+rain$Date = paste(rain$Day,"/",rain$Month,"/",rain$Year)
+rain$Date = gsub(" ", "", rain$Date, fixed = TRUE)
+rain$Date = as.Date(rain$Date, format= "%d/%m/%Y")
+rain = subset(rain, Date > "2000-01-01")
+rain$ma2r = rollapply(rain$Rainfall.amount..millimetres., 2, mean,fill = NA)
+rain$ma3r = rollapply(rain$Rainfall.amount..millimetres., 3, mean,fill = NA)
+rain$ma5r = rollapply(rain$Rainfall.amount..millimetres., 5, mean,fill = NA)
+rain$ma10r = rollapply(rain$Rainfall.amount..millimetres., 10, mean,fill = NA)
+
+### Adding Sunshine Data
+sun = read.csv("sunshine.csv")
+sun$Date = paste(sun$Day,"/",sun$Month,"/",sun$Year)
+sun$Date = gsub(" ", "", sun$Date, fixed = TRUE)
+sun$Date = as.Date(sun$Date, format= "%d/%m/%Y")
+sun$ma2s = rollapply(sun$Daily.global.solar.exposure..MJ.m.m., 2, mean,fill = NA)
+sun$ma3s = rollapply(sun$Daily.global.solar.exposure..MJ.m.m., 3, mean,fill = NA)
+sun$ma5s = rollapply(sun$Daily.global.solar.exposure..MJ.m.m., 5, mean,fill = NA)
+sun$ma10s = rollapply(sun$Daily.global.solar.exposure..MJ.m.m., 10, mean,fill = NA)
+
+### Adding Temp Data
+temp = read.csv("temp.csv")
+temp$Date = paste(temp$Day,"/",temp$Month,"/",temp$Year)
+temp$Date = gsub(" ", "", temp$Date, fixed = TRUE)
+temp$Date = as.Date(temp$Date, format= "%d/%m/%Y")
+temp$ma2t = rollapply(temp$Maximum.temperature..Degree.C., 2, mean,fill = NA)
+temp$ma3t = rollapply(temp$Maximum.temperature..Degree.C., 3, mean,fill = NA)
+temp$ma5t = rollapply(temp$Maximum.temperature..Degree.C., 5, mean,fill = NA)
+temp$ma10t = rollapply(temp$Maximum.temperature..Degree.C., 10, mean,fill = NA)
+
+### Site Land Use and Quality Category
+qual = read.csv("quality.csv",strip.white=TRUE)
+names(qual) = c("New.Site.Code...post.Jun.2007.","landuse","quality")
+
+#This line merges rainfall into the water quality data. 
+wq = merge(wq,rain,by = "Date" )
+wq = merge(wq,sun,by = "Date" )
+wq = merge(wq,temp,by = "Date" )
+wq = merge(wq,qual,by = "New.Site.Code...post.Jun.2007." )
+```
+
+2. Initial data cleaning 
+
+```{r}
+### Changing data to numeric values
+
+wq$Temp...C. = as.numeric(levels(wq$Temp...C.)[wq$Temp...C.])
+wq$DO..mg.L. = as.numeric(levels(wq$DO..mg.L.)[wq$DO..mg.L.])
+wq$DO....sat.. = as.numeric(levels(wq$DO....sat..)[wq$DO....sat..])
+wq$EC..uS.cm.= as.numeric(levels(wq$EC..uS.cm.)[wq$EC..uS.cm.])
+wq$pH = as.numeric(levels(wq$pH)[wq$pH])
+wq$Turb...NTU. = as.numeric(levels(wq$Turb...NTU.)[wq$Turb...NTU.])
+wq$Susp..Solids..mg.L. = as.numeric(levels(wq$Susp..Solids..mg.L.)[wq$Susp..Solids..mg.L.])
+wq$NO3..mg.L.as.N. = as.numeric(levels(wq$NO3..mg.L.as.N.)[wq$NO3..mg.L.as.N.])
+wq$NO2..mg.L.as.N. = as.numeric(levels(wq$NO2..mg.L.as.N.)[wq$NO2..mg.L.as.N.])
+wq$NH3..mg.L. = as.numeric(levels(wq$NH3..mg.L.)[wq$NH3..mg.L.])
+wq$TKN..mg.L.as.N. = as.numeric(levels(wq$TKN..mg.L.as.N.)[wq$TKN..mg.L.as.N.])
+wq$Total.N = as.numeric(levels(wq$Total.N)[wq$Total.N])
+wq$PO4.filt...mg.L.as.P. = as.numeric(levels(wq$PO4.filt...mg.L.as.P.)[wq$PO4.filt...mg.L.as.P.])
+wq$Total.P..mg.L.as.P. = as.numeric(levels(wq$Total.P..mg.L.as.P.)[wq$Total.P..mg.L.as.P.])
+wq$E..coli..MF. = as.numeric(wq$E..coli..MF.)
+
+summary(wq)
+nrow(wq)
+
+### The initial dataset includes information about 20028 daily water quality inspections from 138 river sites (3 rivers) in Melbourne in the last 15 years.  
+
+wq = filter(wq,!is.na(wq$Temp...C.))
+wq = filter(wq,!is.na(wq$pH))
+wq = filter(wq,!is.na(wq$DO..mg.L.))
+wq = filter(wq,!is.na(wq$DO....sat..))
+wq = filter(wq,!is.na(wq$EC..uS.cm.))
+wq = filter(wq,!is.na(wq$Turb...NTU.))
+wq = filter(wq,!is.na(wq$Susp..Solids..mg.L.))
+wq = filter(wq,!is.na(wq$NO3..mg.L.as.N.))
+wq = filter(wq,!is.na(wq$NO2..mg.L.as.N.))
+wq = filter(wq,!is.na(wq$NH3..mg.L.))
+wq = filter(wq,!is.na(wq$TKN..mg.L.as.N.))
+wq = filter(wq,!is.na(wq$Total.N))
+wq = filter(wq,!is.na(wq$PO4.filt...mg.L.as.P.))
+wq = filter(wq,!is.na(wq$Total.P..mg.L.as.P.))
+wq = filter(wq,!is.na(wq$E..coli..MF.))
+wq = filter(wq,!is.na(wq$Pb..mg.L.))
+
+summary(wq)
+nrow(wq)
+```
+
+3. Removing outliers
+
+```{r}
+#We found outliers in the pH data of (70)
+wq = filter(wq, wq$pH < 14)
+hist(wq$pH)
+
+#We found outliers in the Dissolved Oxygen in water (mg/L)
+IQR_DO_mgL = IQR(wq$DO..mg.L.)
+Outlier_DO_mgL = mean(wq$DO..mg.L.)+ 2.5*IQR(wq$DO..mg.L.)
+wq = filter(wq, wq$DO..mg.L. < Outlier_DO_mgL)
+hist(wq$DO..mg.L.)
+
+#We found outliers in the Dissolved Oxygen in water (% Sat)
+IQR_DO_mgL = IQR(wq$DO....sat..)
+Outlier_DO_sat = mean(wq$DO....sat..)+ 2.5*IQR(wq$DO....sat..)
+wq = filter(wq, wq$DO....sat.. < Outlier_DO_sat)
+hist(wq$DO....sat..)
+
+#We found outliers in Electrical Conductivity
+IQR_EC = IQR(wq$EC..uS.cm.)
+Outlier_EC = mean(wq$EC..uS.cm.)+ 2.5*IQR(wq$EC..uS.cm.)
+wq = filter(wq, wq$EC..uS.cm. < Outlier_EC)
+hist(wq$EC..uS.cm.)
+
+#We found outliers in Turbulence Data
+IQR_Tu = IQR(wq$Turb...NTU.)
+Outlier_Tu = mean(wq$Turb...NTU.)+ 2.5*IQR(wq$Turb...NTU.)
+wq = filter(wq, wq$Turb...NTU. < Outlier_Tu)
+hist(wq$Turb...NTU.)
+
+#We found outliers in Suspended Solids Data
+IQR_S = IQR(wq$Susp..Solids..mg.L.)
+Outlier_S = mean(wq$Susp..Solids..mg.L.)+ 2.5*IQR(wq$Susp..Solids..mg.L.)
+wq = filter(wq, wq$Susp..Solids..mg.L. < Outlier_S)
+hist(wq$Susp..Solids..mg.L.)
+
+#We found outliers in NO3 Data
+IQR_NO3 = IQR(wq$NO3..mg.L.as.N.)
+Outlier_NO3 = mean(wq$NO3..mg.L.as.N.)+ 2.5*IQR(wq$NO3..mg.L.as.N.)
+wq = filter(wq, wq$NO3..mg.L.as.N. < Outlier_NO3)
+hist(wq$NO3..mg.L.as.N.)
+
+#We found outliers in NO2 Data
+IQR_NO2 = IQR(wq$NO2..mg.L.as.N.)
+Outlier_NO2 = mean(wq$NO2..mg.L.as.N.)+ 2.5*IQR(wq$NO2..mg.L.as.N.)
+wq = filter(wq, wq$NO2..mg.L.as.N. < Outlier_NO2)
+hist(wq$NO2..mg.L.as.N.)
+
+#We found outliers in NH3 Data
+IQR_NH3 = IQR(wq$NH3..mg.L.)
+Outlier_NH3 = mean(wq$NH3..mg.L.)+ 2.5*IQR(wq$NH3..mg.L.)
+wq = filter(wq, wq$NH3..mg.L. < Outlier_NH3)
+hist(wq$NH3..mg.L.)
+
+#We found outliers in TKN Data
+IQR_TKN = IQR(wq$TKN..mg.L.as.N.)
+Outlier_TKN = mean(wq$TKN..mg.L.as.N.)+ 2.5*IQR(wq$TKN..mg.L.as.N.)
+wq = filter(wq, wq$TKN..mg.L.as.N. < Outlier_TKN)
+hist(wq$TKN..mg.L.as.N.)
+
+#We found outliers in Total N Data
+IQR_TN = IQR(wq$Total.N)
+Outlier_TN = mean(wq$Total.N)+ 2.5*IQR(wq$Total.N)
+wq = filter(wq, wq$Total.N < Outlier_TN)
+hist(wq$Total.N)
+
+#We found outliers in PO4 Data
+IQR_PO4 = IQR(wq$PO4.filt...mg.L.as.P.)
+Outlier_PO4 = mean(wq$PO4.filt...mg.L.as.P.)+ 2.5*IQR(wq$PO4.filt...mg.L.as.P.)
+wq = filter(wq, wq$PO4.filt...mg.L.as.P. < Outlier_PO4)
+hist(wq$Turb...NTU.)
+
+#We found outliers in Total P Data
+IQR_TP = IQR(wq$Total.P..mg.L.as.P.)
+Outlier_TP = mean(wq$Total.P..mg.L.as.P.)+ 2.5*IQR(wq$Total.P..mg.L.as.P.)
+wq = filter(wq, wq$Total.P..mg.L.as.P. < Outlier_TP)
+hist(wq$Total.P..mg.L.as.P.)
+
+#We found outliers in E Coli Data
+IQR_ECMF = IQR(wq$E..coli..MF.)
+Outlier_ECMF = mean(wq$E..coli..MF.)+ 2.5*IQR(wq$E..coli..MF.)
+wq = filter(wq, wq$E..coli..MF. < Outlier_ECMF)
+hist(wq$E..coli..MF.)
+
+summary(wq)
+nrow(wq)
+```
+
+4. Subsetting Yarra data
+
+```{r}
+ya = wq[grep("^YA", wq$New.Site.Code...post.Jun.2007.),]
+ya$New.Site.Code...post.Jun.2007. = factor(ya$New.Site.Code...post.Jun.2007.)
+
+ya <- filter(ya[,-23])
+ya <- filter(ya[,-29])
+ya$E..coli..MF. = as.numeric(ya$E..coli..MF.)
+ya1 = ya[, c(9:29)]
+```
+
+5. Univariate EDA
+
+```{r}
+#temperature EDA
+qplot(y=ya$Temp...C., x= 1, geom = "boxplot")
+ggplot(ya, aes(x=Temp...C.)) + geom_density()
+ggplot(ya, aes(x=Temp...C., fill = New.Site.Code...post.Jun.2007.)) + geom_density()
+ggplot(ya, aes(x=Temp...C.)) + geom_density() + facet_wrap(~New.Site.Code...post.Jun.2007.)
+ggplot(ya, aes(x=Temp...C.)) + geom_density() + facet_wrap(~month)
+
+#Oxygen EDA
+qplot(y=ya$DO....sat.., x= 1, geom = "boxplot")
+ggplot(ya, aes(x=DO....sat..)) + geom_density()
+ggplot(ya, aes(x=DO....sat.., fill = New.Site.Code...post.Jun.2007.)) + geom_density()
+ggplot(ya, aes(x=DO....sat..)) + geom_density() + facet_wrap(~New.Site.Code...post.Jun.2007.)
+
+#EC EDA
+qplot(y=ya$EC..uS.cm., x= 1, geom = "boxplot")
+ggplot(ya, aes(x=EC..uS.cm.)) + geom_density()
+ggplot(ya, aes(x=EC..uS.cm., fill = New.Site.Code...post.Jun.2007.)) + geom_density()
+ggplot(ya, aes(x=EC..uS.cm.)) + geom_density() + facet_wrap(~New.Site.Code...post.Jun.2007.)
+
+ts.plot(ya$EC..uS.cm.)
+ts.plot(diff(ya$EC..uS.cm.))
+
+#pH EDA
+qplot(y=ya$pH, x= 1, geom = "boxplot")
+ggplot(ya, aes(x=pH)) + geom_density()
+ggplot(ya, aes(x=pH, fill = New.Site.Code...post.Jun.2007.)) + geom_density()
+ggplot(ya, aes(x=pH)) + geom_density() + facet_wrap(~New.Site.Code...post.Jun.2007.)
+
+#Turbulance EDA
+qplot(y=ya$Turb...NTU., x= 1, geom = "boxplot")
+ggplot(ya, aes(x=Turb...NTU.)) + geom_density()
+ggplot(ya, aes(x=Turb...NTU., fill = New.Site.Code...post.Jun.2007.)) + geom_density()
+ggplot(ya, aes(x=Turb...NTU.)) + geom_density() + facet_wrap(~New.Site.Code...post.Jun.2007.)
+
+ts.plot(ya$Turb...NTU.)
+ts.plot(diff(ya$Turb...NTU.))
+
+#Suspended Solids EDA
+qplot(y=ya$Susp..Solids..mg.L., x= 1, geom = "boxplot")
+ggplot(ya, aes(x=Susp..Solids..mg.L.)) + geom_density()
+ggplot(ya, aes(x=Susp..Solids..mg.L., fill = New.Site.Code...post.Jun.2007.)) + geom_density()
+ggplot(ya, aes(x=Susp..Solids..mg.L.)) + geom_density() + facet_wrap(~New.Site.Code...post.Jun.2007.)
+
+ts.plot(ya$Susp..Solids..mg.L.)
+ts.plot(diff(ya$Susp..Solids..mg.L.))
+adf.test(ya[complete.cases(ya$Susp..Solids..mg.L.),]$Susp..Solids..mg.L.)
+acf(ya[complete.cases(ya$Susp..Solids..mg.L.),]$Susp..Solids..mg.L.)
+pacf(ya[complete.cases(ya$Susp..Solids..mg.L.),]$Susp..Solids..mg.L.)
+
+#Nitrogen EDA
+qplot(y=ya$Total.N, x= 1, geom = "boxplot")
+ggplot(ya, aes(x=Total.N)) + geom_density()
+ggplot(ya, aes(x=Total.N, fill = New.Site.Code...post.Jun.2007.)) + geom_density()
+ggplot(ya, aes(x=Total.N)) + geom_density() + facet_wrap(~New.Site.Code...post.Jun.2007.)
+
+ts.plot(ya$Total.N)
+ts.plot(diff(ya$Total.N))
+adf.test(ya[complete.cases(ya$Total.N),]$Total.N)
+acf(ya[complete.cases(ya$Total.N),]$Total.N)
+pacf(ya[complete.cases(ya$Total.N),]$Total.N)
+
+#Phosphorus EDA
+qplot(y=ya$Total.P..mg.L.as.P., x= 1, geom = "boxplot")
+ggplot(ya, aes(x=Total.P..mg.L.as.P.)) + geom_density()
+ggplot(ya, aes(x=Total.P..mg.L.as.P., fill = New.Site.Code...post.Jun.2007.)) + geom_density()
+ggplot(ya, aes(x=Total.P..mg.L.as.P.)) + geom_density() + facet_wrap(~New.Site.Code...post.Jun.2007.)
+
+ts.plot(ya$Total.P..mg.L.as.P.)
+ts.plot(diff(ya$Total.P..mg.L.as.P.))
+adf.test(ya[complete.cases(ya$Total.P..mg.L.as.P.),]$Total.P..mg.L.as.P.)
+acf(ya[complete.cases(ya$Total.P..mg.L.as.P.),]$Total.P..mg.L.as.P.)
+pacf(ya[complete.cases(ya$Total.P..mg.L.as.P.),]$Total.P..mg.L.as.P.)
+```
+
+6. Multivariate EDA (water properties)
+```{r}
+
+# Correlation matrix
+dta.r <- (cor(ya1)) #get correlations
+dta.col <- dmat.color(dta.r) #get colors
+dta.o <- order.single(dta.r) #reorder variables so those with highest correlation are closest to the diagonal
+cpairs(dta, dta.o, panel.colors=dta.col, gap=.5,
+      main="Variables Ordered and Colored by Correlation" )
+
+# Scatterplot
+pairs(~Turb...NTU.+DO..mg.L.+EC..uS.cm.+pH+Total.N+E..coli..MF.+Rainfall.amount..millimetres.+Daily.global.solar.exposure..MJ.m.m.+Maximum.temperature..Degree.C.
+      , data = ya1,
+  	main="Scatterplot")
+
+pairs(~ya1$pH + ya1$E..coli..MF. + ya1$Total.N + ya1$Total.P..mg.L.as.P., data = ya1, main="Water properties scatterplot")
+
+qplot(x = New.Site.Code...post.Jun.2007., data = ya, main = "Observation per Site - Yarra - 2000-2015", fill = I("light blue"))
+```
+
+7. Multivariate EDA (weather properties)
+
+```{r}
+# Rainfall and turbulence
+rain_turb_day = cor(wq$Rainfall.amount..millimetres.,wq$Turb...NTU., use="complete.obs", method = "pearson")
+rain_turb_lag2 = cor(wq$ma2r,wq$Turb...NTU., use="complete.obs", method = "pearson")
+rain_turb_lag3 = cor(wq$ma3r, wq$Turb...NTU., use="complete.obs", method = "pearson")
+rain_turb_lag5 = cor(wq$ma5r, wq$Turb...NTU., use="complete.obs", method = "pearson")
+rain_turb_lag10 = cor(wq$ma10r, wq$Turb...NTU., use="complete.obs", method = "pearson")
+
+cor_labs = c("Same Day","2 Day Lag","3 Day Lag","5 Day Lag","10 Day Lag")
+plot(c(rain_turb_day,rain_turb_lag2,rain_turb_lag3,rain_turb_lag5,rain_turb_lag10),type ="l", main = "Correlation between Turbulence and Rainfall", xaxt='n')
+axis(side = 1,at = c(1,2,3,4,5),labels = cor_labs)
+
+# Rainfall and suspended solids
+rain_ss_day = cor(wq$Rainfall.amount..millimetres.,wq$Susp..Solids..mg.L., use="complete.obs", method = "pearson")
+rain_ss_lag2 = cor(wq$ma2r,wq$Susp..Solids..mg.L., use="complete.obs", method = "pearson")
+rain_ss_lag3 = cor(wq$ma3r, wq$Susp..Solids..mg.L., use="complete.obs", method = "pearson")
+rain_ss_lag5 = cor(wq$ma5r, wq$Susp..Solids..mg.L., use="complete.obs", method = "pearson")
+rain_ss_lag10 = cor(wq$ma10r, wq$Susp..Solids..mg.L., use="complete.obs", method = "pearson")
+cor_labs = c("Same Day","2 Day Lag","3 Day Lag","5 Day Lag","10 Day Lag")
+plot(c(rain_ss_day,rain_ss_lag2,rain_ss_lag3,rain_ss_lag5,rain_ss_lag10),type ="l", main = "Correlation between Suspended Solids and Rainfall", xaxt='n')
+axis(side = 1,at = c(1,2,3,4,5),labels = cor_labs)
+
+# Rainfall and nitrogen 
+# Here we see no linear relationship between rainfall and nitrogen loads in the river.
+rain_n_day = cor(wq$Rainfall.amount..millimetres.,wq$Total.N, use="complete.obs", method = "pearson")
+rain_n_lag2 = cor(wq$ma2r,wq$Total.N, use="complete.obs", method = "pearson")
+rain_n_lag3 = cor(wq$ma3r, wq$Total.N, use="complete.obs", method = "pearson")
+rain_n_lag5 = cor(wq$ma5r, wq$Total.N, use="complete.obs", method = "pearson")
+rain_n_lag10 = cor(wq$ma10r, wq$Total.N, use="complete.obs", method = "pearson")
+cor_labs = c("Same Day","2 Day Lag","3 Day Lag","5 Day Lag","10 Day Lag")
+plot(c(rain_n_day,rain_n_lag2,rain_n_lag3,rain_n_lag5,rain_n_lag10),type ="l", main = "Correlation between Nitrogen and Rainfall", xaxt='n')
+axis(side = 1,at = c(1,2,3,4,5),labels = cor_labs)
+```
+
+8. Modeling. Classification
+
+```{r}
+# Hierarchical clustering
+ya_site_data = ya[,c(3,11,12,13,14,15,20,22)] %>% group_by(New.Site.Code...post.Jun.2007.)%>% summarise_each(funs(mean))
+
+ya_clus = dist(ya_site_data[,-1])
+
+ya_clus = hclust(ya_clus)
+plot(ya_clus, labels = ya_site_data$New.Site.Code...post.Jun.2007.)
+rect.hclust(ya_clus, k=4, border="red")
+ya_groups <- cutree(ya_clus, k=4)
+ya_site_data$hclus_group = ya_groups
+
+# K-means
+ya_site_data = ya[,c(3,11,12,13,14,15,20,22)] %>% group_by(New.Site.Code...post.Jun.2007.)%>% summarise_each(funs(mean))
+ya_site_labels = ya_site_data[,1]
+ya_site_data = scale(ya_site_data[,-1])
+
+kmeans1 = kmeans(ya_site_data,3,nstart = 20)
+plotcluster(ya_site_data, kmeans1$cluster)
+clusplot(ya_site_data, kmeans1$cluster, color=TRUE, shade=TRUE, labels=2, lines=0)
+unique(ya$New.Site.Code...post.Jun.2007.)
+kmeans1$tot.withinss
+summary(kmeans1)
+
+kmeans2 = kmeans(ya_site_data,4,nstart = 20)
+plotcluster(ya_site_data, kmeans2$cluster)
+clusplot(ya_site_data, kmeans2$cluster, color=TRUE, shade=TRUE, labels=2, lines=0)
+unique(ya$New.Site.Code...post.Jun.2007.)
+kmeans2tot.withinss
+summary(kmeans2)
+
+kmeans3 = kmeans(ya_site_data,5,nstart = 20)
+plotcluster(ya_site_data, kmeans3$cluster)
+clusplot(ya_site_data, kmeans3$cluster, color=TRUE, shade=TRUE, labels=2, lines=0)
+unique(ya$New.Site.Code...post.Jun.2007.)
+kmeans1$tot.withinss
+summary(kmeans3)
+```
+
+```{r}
+data_size = floor(0.8*nrow(ya))
+train_index = sample(seq_len(nrow(ya)),size = data_size)
+training_data = ya[train_index,]
+test_data = ya[-train_index,]
+
+
+#First basic Linear Regression for E Coli MF Count
+fits1 = lm(E..coli..MF. ~ Temp...C.+DO..mg.L.+DO..mg.L.+DO....sat..+EC..uS.cm.+pH+Turb...NTU.+Susp..Solids..mg.L.+NO3..mg.L.as.N.+NO2..mg.L.as.N.+NH3..mg.L.+TKN..mg.L.as.N.+Total.N+PO4.filt...mg.L.as.P.+Total.P..mg.L.as.P.+quality+landuse, data = training_data)
+
+summary(fits1)
+
+plot(E..coli..MF. ~ DO..mg.L.+EC..uS.cm.+pH+Turb...NTU.+Susp..Solids..mg.L.+NO3..mg.L.as.N.+NO2..mg.L.as.N.+NH3..mg.L.+TKN..mg.L.as.N.+Total.N+PO4.filt...mg.L.as.P.+Total.P..mg.L.as.P., data = training_data)
+
+# Plotting E Coli MF vs all the predictors to guess the shape of the predictors
+# E Coli seems to have a negative linear relationship vs Temperature
+# E Coli seems to have a quadratic relationship vs Dissolved Oxygen mg L
+# E Coli seems to have a quadratic relationship vs Dissolved Oxygen (Sat)
+# E Coli seems to have a negative Exponent relationship vs Electrical Conductivity
+# E Coli seems to have a quadratic relationship vs pH
+# E Coli seems to have an unknown realtionship vs Turbulence
+# E Coli seems to have an unknown realtionship vs Suspended Solids
+# E Coli seems to have an unknown realtionship vs NO3
+# E Coli seems to have an unknown realtionship vs NO2
+# E Coli seems to have an unknown realtionship vs NH3
+# E Coli seems to have an unknown realtionship vs TKN
+# E Coli seems to have an unknown realtionship vs Total N
+# E Coli seems to have an negative exponent realtionship vs PO4
+# E Coli seems to have an unknown realtionship vs Total P
+# E Coli seems to have an unknown realtionship vs Turbulence
+
+# E Coli count does depend much on Total P, PO4, Suspended Solids
+# Adding site location as a factor to the regression model
+# Removing Turbulence,NO3,NO2,NH3,TKN,Total N,EC
+
+#Most of these models are non-normal, therefore we scale all of them
+
+
+fits2 =  lm( scale(E..coli..MF.) ~  New.Site.Code...post.Jun.2007.+ scale(PO4.filt...mg.L.as.P.)+ scale(Total.P..mg.L.as.P.)+ scale(Susp..Solids..mg.L.)+scale(Total.N)+ scale(Temp...C.)+scale(training_data$DO..mg.L.)+quality+landuse, data = training_data)
+
+summary(fits2)
+
+#Applying the expected transforms
+
+fits3 = lm(scale(E..coli..MF.) ~  New.Site.Code...post.Jun.2007.+ scale(I(exp(PO4.filt...mg.L.as.P.)))+ scale(Total.P..mg.L.as.P.)+ scale(Susp..Solids..mg.L.)+scale(Total.N)+ scale(Temp...C.)+scale(I(training_data$DO..mg.L.^2))+scale(I(training_data$DO....sat..^2))+quality+landuse, data = training_data)
+
+summary(fits3)
+#Checking fit on training dataset
+
+
+#Testing this on the test dataset
+test_data$Ecoli = predict(fits3,newdata = test_data)
+
+#What does pH of the water depend on? 
+
+fits4 =  lm(pH ~  New.Site.Code...post.Jun.2007.+ scale(EC..uS.cm.)+scale(Turb...NTU.^2)+scale(Susp..Solids..mg.L.)+scale(Total.N)+scale(Total.P..mg.L.as.P.)+quality+landuse, data = training_data)
+
+summary(fits4)
+
+#What contributes to the amount of ammonia in water?
+
+fits5 = lm(Total.N ~  scale(training_data$NO3..mg.L.as.N.)+scale(training_data$NO2..mg.L.as.N.)+scale(training_data$NH3..mg.L.)+scale(training_data$TKN..mg.L.as.N.)+ quality+landuse, data = training_data)
+
+summary(fits5)
+
+fits = by(training_data,training_data[,'New.Site.Code...post.Jun.2007.'],function(x) lm(E..coli..MF. ~ Old.Site.Code...pre.Jun.2007.+ New.Site.Code...post.Jun.2007.+ scale(EC..uS.cm.^2)+scale(Turb...NTU.^2)+scale(Susp..Solids..mg.L.)+scale(PO4.filt...mg.L.as.P.)+scale(Total.P..mg.L.as.P.),data = x))
+
+#Creating pH as a factor
+#We restrict pH to 4 classes as the other classes do not have a significant number of values
+training_data$pHlabel = cut(training_data$pH,2*(2:5),labels = c('Acidic','Slightly Acidic','Neutral'))
+test_data$pHlabel = cut(test_data$pH,2*(2:5),labels = c('Acidic','Slightly Acidic','Neutral'))
+
+plot(training_data$pHlabel)
+plot(test_data$pHlabel)
+
+#Looks like most of the sites are neutral.
+
+fits1cl =  multinom(pHlabel ~  New.Site.Code...post.Jun.2007.+ scale(PO4.filt...mg.L.as.P.)+ scale(Total.P..mg.L.as.P.)+ scale(Susp..Solids..mg.L.)+scale(Total.N)+ scale(Temp...C.)+scale(DO..mg.L.)+ quality+landuse, data = training_data)
+
+summary(fits1cl)
+
+#This seems to be hard to interpret
+
+fits2cl =  multinom(pHlabel ~ scale(EC..uS.cm.)+scale(Turb...NTU.^2)+scale(Susp..Solids..mg.L.)+scale(Total.N)+scale(Total.P..mg.L.as.P.)+quality, data = training_data)
+
+summary(fits2cl)
+#This is easier to interpret
+
+test_data$predictpH = predict(fits1cl,type = 'class',newdata = test_data)
+
+table(as.numeric(test_data$pHlabel),as.numeric(test_data$predictpH))
+auc(as.numeric(test_data$pHlabel),as.numeric(test_data$predictpH))
+
+plot.roc(test_data$pHlabel,as.numeric(test_data$predictpH))
+
+#Looks like logistic regression does not work too well. The linearity assumption is probably not valid. It turns out that logistic regression is the best performing classifier
+
+#Predicting quality as a function of other variables
+qfit_lr = multinom(training_data$quality ~. ,data = training_data[9:22])
+
+summary(qfit_lr)
+
+predictq_lr = predict(qfit_lr,type = 'class',newdata = test_data)
+
+table(as.numeric(test_data$quality),as.numeric(predictq_lr))
+auc(as.numeric(test_data$quality),as.numeric(predictq_lr))
+
+plot.roc(test_data$quality,as.numeric(predictq_lr))
+```
+
+SVM
+```{r}
+training_data$pHlabel = cut(training_data$pH,2*(2:6),labels = c('Acidic','Slightly Acidic','Neutral','Slightly Basic'))
+
+test_data$pHlabel = cut(test_data$pH,2*(2:6),labels = c('Acidic','Slightly Acidic','Neutral','Slightly Basic'))
+
+fits1svm =  svm(pHlabel ~ scale(EC..uS.cm.)+scale(Turb...NTU.^2)+scale(Susp..Solids..mg.L.)+scale(Total.N)+scale(Total.P..mg.L.as.P.)+quality,kernel = 'polynomial',cost = 1, data = training_data,scale = T)
+
+predpHsvm = predict(fits1svm,newdata = test_data)
+
+table(test_data$pHlabel,predpHsvm)
+auc(as.numeric(test_data$pHlabel),as.numeric(predpHsvm))
+
+plot.roc(test_data$pHlabel,as.numeric(predpHsvm))
+
+
+
+
+#plot(fits1svm,training_data)
+
+#tune1svm = tune(svm,pHlabel ~ scale(EC..uS.cm.)+scale(Turb...NTU.^2)+scale(Susp..Solids..mg.L.)+scale(Total.N)+scale(Total.P..mg.L.as.P.),data = training_data,kernel = 'linear',ranges = list(cost = c(0.1,1,5,10,100)))
+
+#summary(tune1svm)
+
+
+qfit_psvm = svm(training_data$quality ~. ,data = training_data[9:22], kernel = 'polynomial', cost = 10)
+
+qfit_lsvm = svm(training_data$quality ~. ,data = training_data[9:22], kernel = 'linear', cost = 10)
+
+qfit_rbsvm = svm(training_data$quality ~. ,data = training_data[9:22], kernel = 'radial', cost = 10)
+
+summary(qfit_psvm)
+summary(qfit_lsvm)
+summary(qfit_rbsvm)
+
+predictq_p = predict(qfit_psvm,type = 'class',newdata = test_data)
+predictq_l = predict(qfit_lsvm,type = 'class',newdata = test_data)
+predictq_rb = predict(qfit_rbsvm,type = 'class',newdata = test_data)
+
+
+
+table(as.numeric(test_data$quality),as.numeric(predictq_p))
+table(as.numeric(test_data$quality),as.numeric(predictq_l))
+table(as.numeric(test_data$quality),as.numeric(predictq_rb))
+
+
+auc(as.numeric(test_data$quality),as.numeric(predictq_p))
+auc(as.numeric(test_data$quality),as.numeric(predictq_l))
+auc(as.numeric(test_data$quality),as.numeric(predictq_rb))
+
+
+
+plot.roc(test_data$quality,as.numeric(predictq_p))
+plot.roc(test_data$quality,as.numeric(predictq_l))
+plot.roc(test_data$quality,as.numeric(predictq_rb))
+```
+
+
+LDA & QDA 
+```{r}
+training_data$pHlabel = cut(training_data$pH,2*(2:5),labels = c('Acidic','Slightly Acidic','Neutral'))
+test_data$pHlabel = cut(test_data$pH,2*(2:5),labels = c('Acidic','Slightly Acidic','Neutral'))
+LDA1 = lda(pHlabel ~ scale(EC..uS.cm.)+scale(Turb...NTU.^2)+scale(Susp..Solids..mg.L.)+scale(Total.N)+scale(Total.P..mg.L.as.P.)+quality, data = training_data)
+
+summary(LDA1)
+LDA1
+
+predPHLDA = predict(LDA1, newdata = test_data, type = 'class')
+
+table(as.numeric(test_data$pHlabel),as.numeric(predPHLDA$class))
+auc(as.numeric(test_data$pHlabel),as.numeric(predPHLDA$class))
+
+plot.roc(test_data$pHlabel,as.numeric(predPHLDA$class))
+
+#QDA
+
+QDA1 = qda(pHlabel ~ scale(EC..uS.cm.)+scale(Turb...NTU.^2)+scale(Susp..Solids..mg.L.)+scale(Total.N)+scale(Total.P..mg.L.as.P.)+quality, data = training_data)
+
+summary(QDA1)
+QDA1
+
+predPHQDA = predict(QDA1, newdata = test_data, type = 'class')
+
+table(as.numeric(test_data$pHlabel),as.numeric(predPHQDA$class))
+auc(as.numeric(test_data$pHlabel),as.numeric(predPHQDA$class))
+
+plot.roc(test_data$pHlabel,as.numeric(predPHQDA$class))
+
+#As we can see all the classification algorithms fail due to dataset bias of a large number of samples only for Slightly Acidic
+
+#LDA
+qfit_LDA = lda(training_data$quality ~. ,data = training_data[9:22])
+
+summary(qfit_LDA)
+
+predictq_LDA = predict(qfit_LDA,type = 'class',newdata = test_data)
+
+table(as.numeric(test_data$quality),as.numeric(predictq_LDA$class))
+qauc_LDA =auc(as.numeric(test_data$quality),as.numeric(predictq_LDA$class))
+
+plot.roc(test_data$quality,as.numeric(predictq_LDA$class))
+
+
+#QDA
+
+qfit_QDA = multinom(training_data$quality ~. ,data = training_data[9:22])
+
+summary(qfit_QDA)
+
+predictq_QDA = predict(qfit_QDA,type = 'class',newdata = test_data)
+
+table(as.numeric(test_data$quality),as.numeric(predictq_QDA))
+qauc_QDA =auc(as.numeric(test_data$quality),as.numeric(predictq_QDA))
+
+plot.roc(test_data$quality,as.numeric(predictq_QDA))
+
+#Comparing AUC for QDA,LDA,SVM with different kernels, Logistic Regression for quality data
+
